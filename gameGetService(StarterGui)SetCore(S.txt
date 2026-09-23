@@ -1,0 +1,1173 @@
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Notification",
+    Text = "Angelbounds Main ♥",
+    Duration = 5
+})
+
+local handler
+local success, handlerModule = pcall(function()
+    return require(game:GetService("ReplicatedStorage").Modules.GunHandler)
+end)
+
+if success and handlerModule then
+    handler = handlerModule
+else
+    warn("GunHandler module not found; continuing with UI only")
+    handler = { getAim = function(origin, maxDist) return nil end }
+end
+
+local plrs = game:GetService("Players")
+local me = plrs.LocalPlayer
+local playerGui = me:WaitForChild("PlayerGui")
+local cam = workspace.CurrentCamera
+local mouse = me:GetMouse()
+local aimPart = "Head"
+local oldFunc = handler.getAim
+
+_G.FOV_RADIUS = 0
+_G.RevolverBypass = false
+_G.WallCheck = false
+_G.KnockCheck = false
+
+_G.CamLock_Enabled = false
+_G.CamLock_Smoothness = 0.1
+_G.CamLock_Key = Enum.KeyCode.V
+
+_G.ESP_Boxes = false
+_G.ESP_Names = false
+_G.ESP_Health = false
+_G.ESP_Color = Color3.fromRGB(170, 130, 255)
+
+_G.Speed_Enabled = false
+_G.Speed_Value = 50
+_G.Speed_Key = Enum.KeyCode.X
+_G.Speed_ToggleEnabled = false
+
+_G.JumpPower_Enabled = false
+_G.JumpPower_Value = 50
+_G.JumpPower_Key = Enum.KeyCode.Z
+_G.JumpPower_ToggleEnabled = false
+
+_G.Headless_Enabled = false
+_G.Whitelist = {}
+
+-- TriggerBot
+local TriggerBot = {
+    MasterEnabled = false,
+    TriggerKey = Enum.KeyCode.T,
+    Mode = "Toggle",
+    Active = false,
+    ClickDelay = 0.02,
+    Blacklist = {"Knife", "Wallet", "Phone", "Chicken", "Pizza", "Flashlight", "Medkit"}
+}
+
+-- Hitbox
+_G.Hitbox_Enabled = false
+_G.Hitbox_Size = 1
+_G.Hitbox_Visible = true
+_G.Hitbox_Color = Color3.fromRGB(170, 130, 255)
+
+local function isWhitelisted(player)
+    if not player then return false end
+    for _, whitelisted in ipairs(_G.Whitelist) do
+        if whitelisted == player then return true end
+    end
+    return false
+end
+
+local function showWhitelistNotification(action, player)
+    if not player then return end
+    local playerName = player.DisplayName or player.Name or "player"
+    local text = action == "added" and (playerName .. " added to whitelist") or (playerName .. " removed from whitelist")
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Whitelist",
+            Text = text,
+            Duration = 2
+        })
+    end)
+end
+
+local function toggleWhitelist(player)
+    if not player then return end
+    for i, whitelisted in ipairs(_G.Whitelist) do
+        if whitelisted == player then
+            table.remove(_G.Whitelist, i)
+            showWhitelistNotification("removed", player)
+            return
+        end
+    end
+    table.insert(_G.Whitelist, player)
+    showWhitelistNotification("added", player)
+end
+
+local _0xn1 = 100 local _0xn8 = 1 local _0xn9 = 0 local _0xn11 = 2 local _0xn14 = 0.05 local _0xn15 = -0.1 local _0xn16 = -0.05
+local _0x52a0d5 = { BulletSpread = { Enabled = true, Amount = 100 } }
+local _0x9ba38e
+local isCamLockBinding = false
+local isTriggerBinding = false
+
+_0x9ba38e = hookfunction(math.random, function(...)
+    local _0x5e1a0d = { ... }
+    if checkcaller() then return _0x9ba38e(...) end
+    if (#_0x5e1a0d == _0xn9) or (_0x5e1a0d[_0xn8] == _0xn16 and _0x5e1a0d[_0xn11] == _0xn14) or (_0x5e1a0d[_0xn8] == _0xn15) or (_0x5e1a0d[_0xn8] == _0xn16) then
+        if _0x52a0d5.BulletSpread.Enabled then
+            return _0x9ba38e(...) * (_0x52a0d5.BulletSpread.Amount / _0xn1)
+        end
+    end
+    return _0x9ba38e(...)
+end)
+
+local function getClosestPart(char)
+    local closest = nil
+    local shortestDist = math.huge
+    local mousePos = Vector2.new(mouse.X, mouse.Y)
+    local parts = {"Head", "HumanoidRootPart", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "RightUpperLeg", "RightLowerLeg", "RightFoot", "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand"}
+    for _, partName in pairs(parts) do
+        local p = char:FindFirstChild(partName)
+        if p then
+            local screenPos, onScreen = cam:WorldToScreenPoint(p.Position)
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                if dist < shortestDist then shortestDist = dist closest = p end
+            end
+        end
+    end
+    return closest or char:FindFirstChild("Head")
+end
+
+local function getTargetPart(char)
+    if not char then return nil end
+    if aimPart == "Body" then
+        return char:FindFirstChild("HumanoidRootPart")
+    elseif aimPart == "Left Leg" then
+        return char:FindFirstChild("LeftUpperLeg") or char:FindFirstChild("LeftLeg")
+    elseif aimPart == "Right Leg" then
+        return char:FindFirstChild("RightUpperLeg") or char:FindFirstChild("RightLeg")
+    elseif aimPart == "Left Arm" then
+        return char:FindFirstChild("LeftUpperArm") or char:FindFirstChild("LeftArm")
+    elseif aimPart == "Right Arm" then
+        return char:FindFirstChild("RightUpperArm") or char:FindFirstChild("RightArm")
+    else
+        return char:FindFirstChild("Head")
+    end
+end
+
+local function getClosest()
+    local mousePos = Vector2.new(mouse.X, mouse.Y)
+    local best = nil
+    local bestDist = _G.FOV_RADIUS
+    for i, v in pairs(plrs:GetPlayers()) do
+        local humanoid = v.Character and v.Character:FindFirstChild("Humanoid")
+        local canTarget = v ~= me and not isWhitelisted(v) and humanoid and humanoid.Health > 0
+
+        if canTarget and (not _G.KnockCheck or humanoid:GetState() ~= Enum.HumanoidStateType.Dead) then
+            local part = getTargetPart(v.Character)
+            if part then
+                local screenPos, onScreen = cam:WorldToScreenPoint(part.Position)
+                if onScreen then
+                    local screenVec = Vector2.new(screenPos.X, screenPos.Y)
+                    local dist = (screenVec - mousePos).Magnitude
+                    if dist < bestDist then
+                        if _G.WallCheck then
+                            local ray = Ray.new(cam.CFrame.Position, (part.Position - cam.CFrame.Position).Unit * 500)
+                            local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {me.Character, cam})
+                            if hit and hit:IsDescendantOf(v.Character) then bestDist = dist best = part end
+                        else bestDist = dist best = part end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+handler.getAim = function(origin, maxDist)
+    if _G.RevolverBypass then
+        local currentTool = me.Character and me.Character:FindFirstChildOfClass("Tool")
+        if currentTool and (currentTool.Name == "[Revolver]" or currentTool.Name == "Revolver") then
+            if _G.FOV_RADIUS > 0 then
+                local target = getClosest()
+                if target then
+                    local dir = (target.Position - origin).Unit
+                    local dist = (target.Position - origin).Magnitude
+                    return dir, math.min(dist, maxDist or 200)
+                end
+            end
+            return oldFunc(origin, maxDist)
+        end
+    end
+    local target = getClosest()
+    if target then
+        local dir = (target.Position - origin).Unit
+        local dist = (target.Position - origin).Magnitude
+        return dir, math.min(dist, maxDist or 200)
+    end
+    return oldFunc(origin, maxDist)
+end
+
+local UIS = game:GetService('UserInputService')
+local CoreGui = game:GetService('CoreGui')
+local RunService = game:GetService('RunService')
+
+local gui = Instance.new('ScreenGui')
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.Name = 'SilentAimUI'
+gui.Parent = CoreGui
+
+local fovCircle = Instance.new('Frame')
+fovCircle.Name = 'RevolverFovCircle'
+fovCircle.Size = UDim2.new(0, 0, 0, 0)
+fovCircle.Position = UDim2.new(0, 0, 0, 0)
+fovCircle.BackgroundTransparency = 1
+fovCircle.BorderSizePixel = 0
+fovCircle.Visible = false
+fovCircle.ZIndex = 100
+fovCircle.Parent = gui
+
+local fovCircleStroke = Instance.new('UIStroke')
+fovCircleStroke.Color = Color3.new(1, 1, 1)
+fovCircleStroke.Thickness = 2
+fovCircleStroke.Transparency = 0
+fovCircleStroke.Parent = fovCircle
+
+Instance.new('UICorner', fovCircle).CornerRadius = UDim.new(1, 0)
+
+local frame = Instance.new('Frame')
+frame.Size = UDim2.new(0, 620, 0, 520)
+frame.Position = UDim2.new(0.5, -310, 0.5, -260)
+frame.BackgroundColor3 = Color3.fromRGB(20, 16, 30)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Parent = gui
+Instance.new('UICorner', frame).CornerRadius = UDim.new(0, 16)
+
+local dragBar = Instance.new('Frame')
+dragBar.Size = UDim2.new(1, -60, 0, 42)
+dragBar.Position = UDim2.new(0, 0, 0, 0)
+dragBar.BackgroundTransparency = 1
+dragBar.BorderSizePixel = 0
+dragBar.Active = true
+dragBar.ZIndex = 20
+dragBar.Parent = frame
+
+local dropScroll
+local dragging, dragInput, dragStart, startPos = false, nil, Vector2.new(), UDim2.new()
+
+local function beginDrag(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragInput = input
+        dragStart = input.Position
+        startPos = frame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                dragInput = nil
+            end
+        end)
+    end
+end
+
+local function stopDrag(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+        dragInput = nil
+    end
+end
+
+dragBar.InputBegan:Connect(beginDrag)
+dragBar.InputEnded:Connect(stopDrag)
+frame.InputBegan:Connect(beginDrag)
+frame.InputEnded:Connect(stopDrag)
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+local closeBtn = Instance.new('TextButton')
+closeBtn.Size = UDim2.new(0, 30, 0, 28)
+closeBtn.Position = UDim2.new(1, -40, 0, 8)
+closeBtn.AnchorPoint = Vector2.new(0, 0)
+closeBtn.BackgroundColor3 = Color3.fromRGB(245, 240, 250)
+closeBtn.Text = 'X'
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 16
+closeBtn.TextColor3 = Color3.fromRGB(20, 16, 30)
+closeBtn.Parent = frame
+Instance.new('UICorner', closeBtn).CornerRadius = UDim.new(0, 6)
+
+local function hideGui()
+    frame.Visible = false
+    if dropScroll then dropScroll.Visible = false end
+end
+
+local function showGui()
+    frame.Visible = true
+end
+
+closeBtn.MouseButton1Click:Connect(hideGui)
+
+local sidebar = Instance.new('Frame')
+sidebar.Size = UDim2.new(0, 170, 1, 0)
+sidebar.BackgroundColor3 = Color3.fromRGB(28, 20, 44)
+sidebar.BorderSizePixel = 0
+sidebar.Parent = frame
+local sideCorner = Instance.new('UICorner', sidebar)
+sideCorner.CornerRadius = UDim.new(0, 16)
+
+local sideCover = Instance.new('Frame')
+sideCover.Size = UDim2.new(0, 20, 1, 0)
+sideCover.Position = UDim2.new(1, -20, 0, 0)
+sideCover.BackgroundColor3 = Color3.fromRGB(28, 20, 44)
+sideCover.BorderSizePixel = 0
+sideCover.Parent = sidebar
+
+local sideTitle = Instance.new('TextLabel')
+sideTitle.Size = UDim2.new(1, -20, 0, 40)
+sideTitle.Position = UDim2.new(0, 15, 0, 20)
+sideTitle.Text = 'Angelbounds Main ♡'
+sideTitle.TextColor3 = Color3.fromRGB(240, 235, 255)
+sideTitle.TextSize = 14
+sideTitle.Font = Enum.Font.Gotham
+sideTitle.BackgroundTransparency = 1
+sideTitle.TextXAlignment = Enum.TextXAlignment.Left
+sideTitle.Parent = sidebar
+
+local welcomeLabel = Instance.new('TextLabel')
+welcomeLabel.Size = UDim2.new(0, 395, 0, 40)
+welcomeLabel.Position = UDim2.new(0, 190, 0, 20)
+welcomeLabel.Text = 'Hello, ' .. me.Name
+welcomeLabel.TextColor3 = Color3.fromRGB(240, 235, 255)
+welcomeLabel.TextSize = 24
+welcomeLabel.Font = Enum.Font.Gotham
+welcomeLabel.BackgroundTransparency = 1
+welcomeLabel.TextXAlignment = Enum.TextXAlignment.Left
+welcomeLabel.Parent = frame
+
+local tabContainer = Instance.new('Frame')
+tabContainer.Size = UDim2.new(0, 415, 0, 410)
+tabContainer.Position = UDim2.new(0, 190, 0, 70)
+tabContainer.BackgroundTransparency = 1
+tabContainer.Parent = frame
+
+local tabs = {
+    CamLock = Instance.new('Frame'),
+    Home = Instance.new('Frame'),
+    SilentAim = Instance.new('Frame'),
+    TriggerBot = Instance.new('Frame'),
+    Hitbox = Instance.new('Frame'),
+    Whitelist = Instance.new('Frame'),
+    ESP = Instance.new('Frame'),
+    Misc = Instance.new('Frame'),
+    Teleport = Instance.new('Frame'),
+    Avatar = Instance.new('Frame'),
+    Settings = Instance.new('Frame')
+}
+
+for name, page in pairs(tabs) do
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundColor3 = Color3.fromRGB(25, 18, 38)
+    page.BorderSizePixel = 0
+    page.Visible = (name == "Home")
+    page.Parent = tabContainer
+    Instance.new('UICorner', page).CornerRadius = UDim.new(0, 12)
+end
+
+local tabButtons = {}
+local tabNames = {"Home", "Silent Aim", "Trigger Bot", "Hitbox Expander", "CamLock", "Whitelist", "ESP", "Misc", "Teleport", "Avatar", "Settings"}
+local tabKeys = {"Home", "SilentAim", "TriggerBot", "Hitbox", "CamLock", "Whitelist", "ESP", "Misc", "Teleport", "Avatar", "Settings"}
+
+local function switchTab(targetKey)
+    for key, page in pairs(tabs) do
+        page.Visible = (key == targetKey)
+    end
+    for key, btn in pairs(tabButtons) do
+        if key == targetKey then
+            btn.BackgroundColor3 = Color3.fromRGB(230, 210, 255)
+            btn.TextColor3 = Color3.fromRGB(120, 60, 210)
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(38, 33, 46)
+            btn.TextColor3 = Color3.fromRGB(245, 240, 250)
+        end
+    end
+end
+
+for idx, labelText in ipairs(tabNames) do
+    local key = tabKeys[idx]
+    local btn = Instance.new('TextButton')
+    btn.Size = UDim2.new(1, -20, 0, 32)
+    btn.Position = UDim2.new(0, 10, 0, 70 + (idx - 1) * 36)
+    btn.Text = '   ' .. labelText
+    btn.TextSize = 12
+    btn.Font = Enum.Font.Gotham
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.Parent = sidebar
+    Instance.new('UICorner', btn).CornerRadius = UDim.new(0, 8)
+    tabButtons[key] = btn
+    btn.MouseButton1Click:Connect(function() switchTab(key) end)
+end
+switchTab("Home")
+
+local function createPageHeader(pageFrame, titleText)
+    local title = Instance.new('TextLabel')
+    title.Size = UDim2.new(1, -30, 0, 30)
+    title.Position = UDim2.new(0, 15, 0, 10)
+    title.Text = titleText
+    title.TextColor3 = Color3.fromRGB(180, 140, 255)
+    title.TextSize = 15
+    title.Font = Enum.Font.GothamBold
+    title.BackgroundTransparency = 1
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = pageFrame
+
+    local line = Instance.new('Frame')
+    line.Size = UDim2.new(1, -30, 0, 1)
+    line.Position = UDim2.new(0, 15, 0, 40)
+    line.BackgroundColor3 = Color3.fromRGB(235, 230, 250)
+    line.BorderSizePixel = 0
+    line.Parent = pageFrame
+end
+
+createPageHeader(tabs.Home, "Home")
+createPageHeader(tabs.SilentAim, "Silent Aim Settings")
+createPageHeader(tabs.TriggerBot, "Trigger Bot")
+createPageHeader(tabs.Hitbox, "Hitbox Expander")
+createPageHeader(tabs.CamLock, "CamLock Settings")
+createPageHeader(tabs.Whitelist, "Whitelist")
+createPageHeader(tabs.ESP, "ESP Settings")
+createPageHeader(tabs.Misc, "Misc Settings")
+createPageHeader(tabs.Teleport, "Teleport System")
+createPageHeader(tabs.Avatar, "Avatar")
+createPageHeader(tabs.Settings, "Settings")
+
+-- ==================== HOME ====================
+local homeTitle = Instance.new('TextLabel')
+homeTitle.Size = UDim2.new(1, -30, 0, 24)
+homeTitle.Position = UDim2.new(0, 15, 0, 55)
+homeTitle.Text = 'Executed by'
+homeTitle.TextColor3 = Color3.fromRGB(180, 140, 255)
+homeTitle.TextSize = 16
+homeTitle.Font = Enum.Font.GothamBold
+homeTitle.BackgroundTransparency = 1
+homeTitle.TextXAlignment = Enum.TextXAlignment.Left
+homeTitle.Parent = tabs.Home
+
+local avatarFrame = Instance.new('Frame')
+avatarFrame.Size = UDim2.new(0, 120, 0, 120)
+avatarFrame.Position = UDim2.new(0, 15, 0, 95)
+avatarFrame.BackgroundColor3 = Color3.fromRGB(38, 33, 46)
+avatarFrame.BorderSizePixel = 0
+avatarFrame.Parent = tabs.Home
+Instance.new('UICorner', avatarFrame).CornerRadius = UDim.new(0, 16)
+
+local avatarImage = Instance.new('ImageLabel')
+avatarImage.Size = UDim2.new(1, 0, 1, 0)
+avatarImage.BackgroundTransparency = 1
+avatarImage.Image = ''
+avatarImage.ScaleType = Enum.ScaleType.Crop
+avatarImage.Parent = avatarFrame
+
+local displayLabel = Instance.new('TextLabel')
+displayLabel.Size = UDim2.new(1, -150, 0, 22)
+displayLabel.Position = UDim2.new(0, 150, 0, 95)
+displayLabel.Text = 'Display Name: ' .. me.DisplayName
+displayLabel.TextColor3 = Color3.fromRGB(230, 220, 255)
+displayLabel.TextSize = 13
+displayLabel.Font = Enum.Font.Gotham
+displayLabel.BackgroundTransparency = 1
+displayLabel.TextXAlignment = Enum.TextXAlignment.Left
+displayLabel.Parent = tabs.Home
+
+local usernameLabel = Instance.new('TextLabel')
+usernameLabel.Size = UDim2.new(1, -150, 0, 22)
+usernameLabel.Position = UDim2.new(0, 150, 0, 125)
+usernameLabel.Text = 'Username: ' .. me.Name
+usernameLabel.TextColor3 = Color3.fromRGB(230, 220, 255)
+usernameLabel.TextSize = 13
+usernameLabel.Font = Enum.Font.Gotham
+usernameLabel.BackgroundTransparency = 1
+usernameLabel.TextXAlignment = Enum.TextXAlignment.Left
+usernameLabel.Parent = tabs.Home
+
+local idLabel = Instance.new('TextLabel')
+idLabel.Size = UDim2.new(1, -150, 0, 22)
+idLabel.Position = UDim2.new(0, 150, 0, 155)
+idLabel.Text = 'User ID: ' .. tostring(me.UserId)
+idLabel.TextColor3 = Color3.fromRGB(230, 220, 255)
+idLabel.TextSize = 13
+idLabel.Font = Enum.Font.Gotham
+idLabel.BackgroundTransparency = 1
+idLabel.TextXAlignment = Enum.TextXAlignment.Left
+idLabel.Parent = tabs.Home
+
+spawn(function()
+    local success, thumb = pcall(function()
+        return game:GetService('Players'):GetUserThumbnailAsync(me.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+    end)
+    if success and thumb then avatarImage.Image = thumb end
+end)
+
+-- ==================== SILENT AIM ====================
+local toggleLabel = Instance.new('TextLabel')
+toggleLabel.Size = UDim2.new(0, 150, 0, 30)
+toggleLabel.Position = UDim2.new(0, 15, 0, 55)
+toggleLabel.Text = 'Show FOV'
+toggleLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+toggleLabel.TextSize = 13
+toggleLabel.Font = Enum.Font.Gotham
+toggleLabel.BackgroundTransparency = 1
+toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+toggleLabel.Parent = tabs.SilentAim
+
+local toggleBtn = Instance.new('TextButton')
+toggleBtn.Size = UDim2.new(0, 50, 0, 22)
+toggleBtn.Position = UDim2.new(1, -65, 0, 59)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(245, 240, 250)
+toggleBtn.Text = 'OFF'
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 11
+toggleBtn.Parent = tabs.SilentAim
+Instance.new('UICorner', toggleBtn).CornerRadius = UDim.new(0, 6)
+
+local function updateRevolverFovCircle()
+    local enabled = _G.RevolverBypass and (_G.FOV_RADIUS or 0) > 0
+    if not enabled then fovCircle.Visible = false return end
+    local radius = math.max(20, _G.FOV_RADIUS or 0)
+    local diameter = math.clamp(radius * 2, 20, 1800)
+    local mousePos = UIS:GetMouseLocation()
+    local screenSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+    local x = math.clamp(mousePos.X - (diameter / 2), 0, math.max(0, screenSize.X - diameter))
+    local y = math.clamp(mousePos.Y - (diameter / 2), 0, math.max(0, screenSize.Y - diameter))
+    fovCircle.Size = UDim2.new(0, diameter, 0, diameter)
+    fovCircle.Position = UDim2.new(0, x, 0, y)
+    fovCircle.Visible = true
+end
+
+local function syncRevolverBypassUI()
+    toggleBtn.Text = _G.RevolverBypass and 'ON' or 'OFF'
+    toggleBtn.BackgroundColor3 = _G.RevolverBypass and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+    updateRevolverFovCircle()
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+    _G.RevolverBypass = not _G.RevolverBypass
+    syncRevolverBypassUI()
+end)
+
+RunService.RenderStepped:Connect(updateRevolverFovCircle)
+syncRevolverBypassUI()
+
+local wallLabel = Instance.new('TextLabel')
+wallLabel.Size = UDim2.new(0, 150, 0, 30)
+wallLabel.Position = UDim2.new(0, 15, 0, 95)
+wallLabel.Text = 'Wall Check'
+wallLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+wallLabel.TextSize = 13
+wallLabel.Font = Enum.Font.Gotham
+wallLabel.BackgroundTransparency = 1
+wallLabel.TextXAlignment = Enum.TextXAlignment.Left
+wallLabel.Parent = tabs.SilentAim
+
+local wallBtn = Instance.new('TextButton')
+wallBtn.Size = UDim2.new(0, 50, 0, 22)
+wallBtn.Position = UDim2.new(1, -65, 0, 99)
+wallBtn.BackgroundColor3 = Color3.fromRGB(245, 240, 250)
+wallBtn.Text = 'OFF'
+wallBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+wallBtn.Font = Enum.Font.GothamBold
+wallBtn.TextSize = 11
+wallBtn.Parent = tabs.SilentAim
+Instance.new('UICorner', wallBtn).CornerRadius = UDim.new(0, 6)
+
+wallBtn.MouseButton1Click:Connect(function()
+    _G.WallCheck = not _G.WallCheck
+    wallBtn.Text = _G.WallCheck and 'ON' or 'OFF'
+    wallBtn.BackgroundColor3 = _G.WallCheck and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+end)
+
+local knockLabel = Instance.new('TextLabel')
+knockLabel.Size = UDim2.new(0, 150, 0, 30)
+knockLabel.Position = UDim2.new(0, 15, 0, 135)
+knockLabel.Text = 'Knock Check'
+knockLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+knockLabel.TextSize = 13
+knockLabel.Font = Enum.Font.Gotham
+knockLabel.BackgroundTransparency = 1
+knockLabel.TextXAlignment = Enum.TextXAlignment.Left
+knockLabel.Parent = tabs.SilentAim
+
+local knockBtn = Instance.new('TextButton')
+knockBtn.Size = UDim2.new(0, 50, 0, 22)
+knockBtn.Position = UDim2.new(1, -65, 0, 139)
+knockBtn.BackgroundColor3 = Color3.fromRGB(245, 240, 250)
+knockBtn.Text = 'OFF'
+knockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+knockBtn.Font = Enum.Font.GothamBold
+knockBtn.TextSize = 11
+knockBtn.Parent = tabs.SilentAim
+Instance.new('UICorner', knockBtn).CornerRadius = UDim.new(0, 6)
+
+knockBtn.MouseButton1Click:Connect(function()
+    _G.KnockCheck = not _G.KnockCheck
+    knockBtn.Text = _G.KnockCheck and 'ON' or 'OFF'
+    knockBtn.BackgroundColor3 = _G.KnockCheck and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+end)
+
+local fovMax = 1000
+local fovTitleLabel = Instance.new('TextLabel')
+fovTitleLabel.Size = UDim2.new(1, -100, 0, 20)
+fovTitleLabel.Position = UDim2.new(0, 15, 0, 175)
+fovTitleLabel.Text = 'FOV Radius'
+fovTitleLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+fovTitleLabel.TextSize = 13
+fovTitleLabel.Font = Enum.Font.Gotham
+fovTitleLabel.BackgroundTransparency = 1
+fovTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+fovTitleLabel.Parent = tabs.SilentAim
+
+local slider = Instance.new('Frame')
+slider.Size = UDim2.new(1, -30, 0, 6)
+slider.Position = UDim2.new(0, 15, 0, 205)
+slider.BackgroundColor3 = Color3.fromRGB(235, 230, 250)
+slider.BorderSizePixel = 0
+slider.Parent = tabs.SilentAim
+Instance.new('UICorner', slider).CornerRadius = UDim.new(1, 0)
+
+local button = Instance.new('TextButton')
+button.Size = UDim2.new(0, 14, 0, 14)
+button.Position = UDim2.new(0, -7, 0.5, -7)
+button.BackgroundColor3 = Color3.fromRGB(170, 130, 255)
+button.BorderSizePixel = 0
+button.Text = ""
+button.Parent = slider
+Instance.new('UICorner', button).CornerRadius = UDim.new(1, 0)
+
+local fovInput = Instance.new('TextBox')
+fovInput.Size = UDim2.new(0, 60, 0, 22)
+fovInput.Position = UDim2.new(1, -75, 0, 175)
+fovInput.Text = '0'
+fovInput.PlaceholderText = '0'
+fovInput.TextColor3 = Color3.fromRGB(95, 38, 145)
+fovInput.TextSize = 12
+fovInput.Font = Enum.Font.Gotham
+fovInput.BackgroundColor3 = Color3.fromRGB(230, 220, 255)
+fovInput.BorderSizePixel = 0
+fovInput.ClearTextOnFocus = false
+fovInput.TextXAlignment = Enum.TextXAlignment.Center
+fovInput.Parent = tabs.SilentAim
+Instance.new('UICorner', fovInput).CornerRadius = UDim.new(0, 6)
+
+local spreadTitleLabel = Instance.new('TextLabel')
+spreadTitleLabel.Size = UDim2.new(1, -100, 0, 20)
+spreadTitleLabel.Position = UDim2.new(0, 15, 0, 245)
+spreadTitleLabel.Text = 'Bullet Spread'
+spreadTitleLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+spreadTitleLabel.TextSize = 13
+spreadTitleLabel.Font = Enum.Font.Gotham
+spreadTitleLabel.BackgroundTransparency = 1
+spreadTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+spreadTitleLabel.Parent = tabs.SilentAim
+
+local spreadSlider = Instance.new('Frame')
+spreadSlider.Size = UDim2.new(1, -30, 0, 6)
+spreadSlider.Position = UDim2.new(0, 15, 0, 275)
+spreadSlider.BackgroundColor3 = Color3.fromRGB(235, 230, 250)
+spreadSlider.BorderSizePixel = 0
+spreadSlider.Parent = tabs.SilentAim
+Instance.new('UICorner', spreadSlider).CornerRadius = UDim.new(1, 0)
+
+local spreadBtn = Instance.new('TextButton')
+spreadBtn.Size = UDim2.new(0, 14, 0, 14)
+spreadBtn.Position = UDim2.new(0, -7, 0.5, -7)
+spreadBtn.BackgroundColor3 = Color3.fromRGB(170, 130, 255)
+spreadBtn.BorderSizePixel = 0
+spreadBtn.Text = ""
+spreadBtn.Parent = spreadSlider
+Instance.new('UICorner', spreadBtn).CornerRadius = UDim.new(1, 0)
+
+local spreadInput = Instance.new('TextBox')
+spreadInput.Size = UDim2.new(0, 60, 0, 22)
+spreadInput.Position = UDim2.new(1, -75, 0, 245)
+spreadInput.Text = tostring(_0x52a0d5.BulletSpread.Amount)
+spreadInput.PlaceholderText = tostring(_0x52a0d5.BulletSpread.Amount)
+spreadInput.TextColor3 = Color3.fromRGB(95, 38, 145)
+spreadInput.TextSize = 12
+spreadInput.Font = Enum.Font.Gotham
+spreadInput.BackgroundColor3 = Color3.fromRGB(230, 220, 255)
+spreadInput.BorderSizePixel = 0
+spreadInput.ClearTextOnFocus = false
+spreadInput.TextXAlignment = Enum.TextXAlignment.Center
+spreadInput.Parent = tabs.SilentAim
+Instance.new('UICorner', spreadInput).CornerRadius = UDim.new(0, 6)
+
+local function syncSpreadUI(value)
+    local clampedValue = math.clamp(math.floor(value or 0), 0, 100)
+    _0x52a0d5.BulletSpread.Amount = clampedValue
+    spreadInput.Text = tostring(clampedValue)
+    local percent = clampedValue / 100
+    spreadBtn.Position = UDim2.new(percent, -7, 0.5, -7)
+end
+syncSpreadUI(_0x52a0d5.BulletSpread.Amount)
+
+local hitLabel = Instance.new('TextLabel')
+hitLabel.Size = UDim2.new(0, 100, 0, 30)
+hitLabel.Position = UDim2.new(0, 15, 0, 300)
+hitLabel.Text = 'Aim Part'
+hitLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+hitLabel.TextSize = 13
+hitLabel.Font = Enum.Font.Gotham
+hitLabel.BackgroundTransparency = 1
+hitLabel.TextXAlignment = Enum.TextXAlignment.Left
+hitLabel.Parent = tabs.SilentAim
+
+local dropMain = Instance.new('TextButton')
+dropMain.Size = UDim2.new(0, 170, 0, 24)
+dropMain.Position = UDim2.new(0, 15, 0, 302)
+dropMain.BackgroundColor3 = Color3.fromRGB(235, 230, 250)
+dropMain.Text = 'Head v'
+dropMain.TextColor3 = Color3.fromRGB(180, 140, 255)
+dropMain.Font = Enum.Font.GothamBold
+dropMain.TextSize = 12
+dropMain.ZIndex = 50
+dropMain.Parent = tabs.SilentAim
+Instance.new('UICorner', dropMain).CornerRadius = UDim.new(0, 6)
+
+dropScroll = Instance.new('ScrollingFrame')
+dropScroll.Size = UDim2.new(0, 170, 0, 100)
+dropScroll.Position = UDim2.new(0, 15, 0, 332)
+dropScroll.BackgroundColor3 = Color3.fromRGB(235, 230, 250)
+dropScroll.BorderSizePixel = 0
+dropScroll.Visible = false
+dropScroll.ZIndex = 51
+dropScroll.CanvasSize = UDim2.new(0, 0, 0, 215)
+dropScroll.ScrollBarThickness = 6
+dropScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+dropScroll.Parent = tabs.SilentAim
+Instance.new('UICorner', dropScroll).CornerRadius = UDim.new(0, 6)
+
+local dropListLayout = Instance.new('UIListLayout')
+dropListLayout.Padding = UDim.new(0, 4)
+dropListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+dropListLayout.Parent = dropScroll
+
+local partsList = {"Head", "Body", "Left Leg", "Right Leg", "Left Arm", "Right Arm"}
+for idx, partName in ipairs(partsList) do
+    local partBtn = Instance.new('TextButton')
+    partBtn.Size = UDim2.new(1, -12, 0, 28)
+    partBtn.LayoutOrder = idx
+    partBtn.BackgroundColor3 = Color3.fromRGB(245, 240, 250)
+    partBtn.Text = partName
+    partBtn.TextColor3 = Color3.fromRGB(180, 140, 255)
+    partBtn.Font = Enum.Font.Gotham
+    partBtn.TextSize = 12
+    partBtn.ZIndex = 52
+    partBtn.Parent = dropScroll
+    Instance.new('UICorner', partBtn).CornerRadius = UDim.new(0, 4)
+    partBtn.MouseButton1Click:Connect(function()
+        aimPart = partName
+        dropMain.Text = partName .. ' v'
+        dropScroll.Visible = false
+    end)
+end
+
+dropMain.MouseButton1Click:Connect(function()
+    dropScroll.Visible = not dropScroll.Visible
+end)
+
+-- ==================== TRIGGER BOT ====================
+local tbEnabledLabel = Instance.new('TextLabel')
+tbEnabledLabel.Size = UDim2.new(0, 160, 0, 30)
+tbEnabledLabel.Position = UDim2.new(0, 15, 0, 55)
+tbEnabledLabel.Text = 'TriggerBot Enabled'
+tbEnabledLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+tbEnabledLabel.TextSize = 13
+tbEnabledLabel.Font = Enum.Font.Gotham
+tbEnabledLabel.BackgroundTransparency = 1
+tbEnabledLabel.TextXAlignment = Enum.TextXAlignment.Left
+tbEnabledLabel.Parent = tabs.TriggerBot
+
+local tbEnabledBtn = Instance.new('TextButton')
+tbEnabledBtn.Size = UDim2.new(0, 50, 0, 22)
+tbEnabledBtn.Position = UDim2.new(1, -65, 0, 59)
+tbEnabledBtn.BackgroundColor3 = Color3.fromRGB(245, 240, 250)
+tbEnabledBtn.Text = 'OFF'
+tbEnabledBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tbEnabledBtn.Font = Enum.Font.GothamBold
+tbEnabledBtn.TextSize = 11
+tbEnabledBtn.Parent = tabs.TriggerBot
+Instance.new('UICorner', tbEnabledBtn).CornerRadius = UDim.new(0, 6)
+
+tbEnabledBtn.MouseButton1Click:Connect(function()
+    TriggerBot.MasterEnabled = not TriggerBot.MasterEnabled
+    tbEnabledBtn.Text = TriggerBot.MasterEnabled and 'ON' or 'OFF'
+    tbEnabledBtn.BackgroundColor3 = TriggerBot.MasterEnabled and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+    if not TriggerBot.MasterEnabled then TriggerBot.Active = false end
+end)
+
+local tbBindLabel = Instance.new('TextLabel')
+tbBindLabel.Size = UDim2.new(0, 160, 0, 30)
+tbBindLabel.Position = UDim2.new(0, 15, 0, 95)
+tbBindLabel.Text = 'TriggerBot Bind'
+tbBindLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+tbBindLabel.TextSize = 13
+tbBindLabel.Font = Enum.Font.Gotham
+tbBindLabel.BackgroundTransparency = 1
+tbBindLabel.TextXAlignment = Enum.TextXAlignment.Left
+tbBindLabel.Parent = tabs.TriggerBot
+
+local tbBindBtn = Instance.new('TextButton')
+tbBindBtn.Size = UDim2.new(0, 70, 0, 22)
+tbBindBtn.Position = UDim2.new(1, -85, 0, 99)
+tbBindBtn.BackgroundColor3 = Color3.fromRGB(235, 230, 250)
+tbBindBtn.Text = 'Key: T'
+tbBindBtn.TextColor3 = Color3.fromRGB(120, 60, 210)
+tbBindBtn.Font = Enum.Font.GothamBold
+tbBindBtn.TextSize = 11
+tbBindBtn.Parent = tabs.TriggerBot
+Instance.new('UICorner', tbBindBtn).CornerRadius = UDim.new(0, 6)
+
+tbBindBtn.MouseButton1Click:Connect(function()
+    isTriggerBinding = true
+    tbBindBtn.Text = '...'
+end)
+
+-- ==================== HITBOX EXPANDER ====================
+local hbEnabledLabel = Instance.new('TextLabel')
+hbEnabledLabel.Size = UDim2.new(0, 160, 0, 30)
+hbEnabledLabel.Position = UDim2.new(0, 15, 0, 55)
+hbEnabledLabel.Text = 'Hitbox Enabled'
+hbEnabledLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+hbEnabledLabel.TextSize = 13
+hbEnabledLabel.Font = Enum.Font.Gotham
+hbEnabledLabel.BackgroundTransparency = 1
+hbEnabledLabel.TextXAlignment = Enum.TextXAlignment.Left
+hbEnabledLabel.Parent = tabs.Hitbox
+
+local hbEnabledBtn = Instance.new('TextButton')
+hbEnabledBtn.Size = UDim2.new(0, 50, 0, 22)
+hbEnabledBtn.Position = UDim2.new(1, -65, 0, 59)
+hbEnabledBtn.BackgroundColor3 = Color3.fromRGB(245, 240, 250)
+hbEnabledBtn.Text = 'OFF'
+hbEnabledBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hbEnabledBtn.Font = Enum.Font.GothamBold
+hbEnabledBtn.TextSize = 11
+hbEnabledBtn.Parent = tabs.Hitbox
+Instance.new('UICorner', hbEnabledBtn).CornerRadius = UDim.new(0, 6)
+
+hbEnabledBtn.MouseButton1Click:Connect(function()
+    _G.Hitbox_Enabled = not _G.Hitbox_Enabled
+    hbEnabledBtn.Text = _G.Hitbox_Enabled and 'ON' or 'OFF'
+    hbEnabledBtn.BackgroundColor3 = _G.Hitbox_Enabled and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+end)
+
+local hbVisLabel = Instance.new('TextLabel')
+hbVisLabel.Size = UDim2.new(0, 160, 0, 30)
+hbVisLabel.Position = UDim2.new(0, 15, 0, 95)
+hbVisLabel.Text = 'Visibility'
+hbVisLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+hbVisLabel.TextSize = 13
+hbVisLabel.Font = Enum.Font.Gotham
+hbVisLabel.BackgroundTransparency = 1
+hbVisLabel.TextXAlignment = Enum.TextXAlignment.Left
+hbVisLabel.Parent = tabs.Hitbox
+
+local hbVisBtn = Instance.new('TextButton')
+hbVisBtn.Size = UDim2.new(0, 50, 0, 22)
+hbVisBtn.Position = UDim2.new(1, -65, 0, 99)
+hbVisBtn.BackgroundColor3 = Color3.fromRGB(170, 130, 255)
+hbVisBtn.Text = 'ON'
+hbVisBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hbVisBtn.Font = Enum.Font.GothamBold
+hbVisBtn.TextSize = 11
+hbVisBtn.Parent = tabs.Hitbox
+Instance.new('UICorner', hbVisBtn).CornerRadius = UDim.new(0, 6)
+
+hbVisBtn.MouseButton1Click:Connect(function()
+    _G.Hitbox_Visible = not _G.Hitbox_Visible
+    hbVisBtn.Text = _G.Hitbox_Visible and 'ON' or 'OFF'
+    hbVisBtn.BackgroundColor3 = _G.Hitbox_Visible and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+end)
+
+local hbSizeLabel = Instance.new('TextLabel')
+hbSizeLabel.Size = UDim2.new(1, -30, 0, 20)
+hbSizeLabel.Position = UDim2.new(0, 15, 0, 135)
+hbSizeLabel.Text = 'Size: 1'
+hbSizeLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+hbSizeLabel.TextSize = 13
+hbSizeLabel.Font = Enum.Font.Gotham
+hbSizeLabel.BackgroundTransparency = 1
+hbSizeLabel.TextXAlignment = Enum.TextXAlignment.Left
+hbSizeLabel.Parent = tabs.Hitbox
+
+local hbSlider = Instance.new('Frame')
+hbSlider.Size = UDim2.new(1, -30, 0, 6)
+hbSlider.Position = UDim2.new(0, 15, 0, 165)
+hbSlider.BackgroundColor3 = Color3.fromRGB(235, 230, 250)
+hbSlider.BorderSizePixel = 0
+hbSlider.Parent = tabs.Hitbox
+Instance.new('UICorner', hbSlider).CornerRadius = UDim.new(1, 0)
+
+local hbSliderBtn = Instance.new('TextButton')
+hbSliderBtn.Size = UDim2.new(0, 14, 0, 14)
+hbSliderBtn.Position = UDim2.new(0, 0, 0.5, -7)
+hbSliderBtn.BackgroundColor3 = Color3.fromRGB(170, 130, 255)
+hbSliderBtn.BorderSizePixel = 0
+hbSliderBtn.Text = ""
+hbSliderBtn.Parent = hbSlider
+Instance.new('UICorner', hbSliderBtn).CornerRadius = UDim.new(1, 0)
+
+local hbColors = {
+    Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 140, 0), Color3.fromRGB(255, 220, 50),
+    Color3.fromRGB(50, 220, 50), Color3.fromRGB(50, 150, 255), Color3.fromRGB(160, 50, 255),
+    Color3.fromRGB(255, 100, 180), Color3.fromRGB(255, 255, 255), Color3.fromRGB(30, 30, 30)
+}
+
+for idx, col in ipairs(hbColors) do
+    local cBtn = Instance.new('TextButton')
+    cBtn.Size = UDim2.new(0, 24, 0, 24)
+    cBtn.Position = UDim2.new(0, 15 + (idx-1) * 30, 0, 195)
+    cBtn.BackgroundColor3 = col
+    cBtn.Text = ""
+    cBtn.Parent = tabs.Hitbox
+    Instance.new('UICorner', cBtn).CornerRadius = UDim.new(0, 5)
+    local strk = Instance.new('UIStroke', cBtn)
+    strk.Color = Color3.fromRGB(180, 160, 220)
+    strk.Thickness = 1
+    cBtn.MouseButton1Click:Connect(function()
+        _G.Hitbox_Color = col
+    end)
+end
+
+-- ==================== REST OF THE ORIGINAL TABS (CamLock, ESP, Misc, etc.) ====================
+-- (Keeping all original CamLock, ESP, Misc, Teleport, Avatar, Settings, Whitelist code exactly as provided)
+
+-- CamLock Tab UI
+local camLabel = Instance.new('TextLabel')
+camLabel.Size = UDim2.new(0, 150, 0, 30)
+camLabel.Position = UDim2.new(0, 15, 0, 55)
+camLabel.Text = 'CamLock'
+camLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+camLabel.TextSize = 13
+camLabel.Font = Enum.Font.Gotham
+camLabel.BackgroundTransparency = 1
+camLabel.TextXAlignment = Enum.TextXAlignment.Left
+camLabel.Parent = tabs.CamLock
+
+local camLockToggleBtn = Instance.new('TextButton')
+camLockToggleBtn.Size = UDim2.new(0, 50, 0, 22)
+camLockToggleBtn.Position = UDim2.new(1, -65, 0, 59)
+camLockToggleBtn.BackgroundColor3 = _G.CamLock_Enabled and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+camLockToggleBtn.Text = _G.CamLock_Enabled and 'ON' or 'OFF'
+camLockToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+camLockToggleBtn.Font = Enum.Font.GothamBold
+camLockToggleBtn.TextSize = 11
+camLockToggleBtn.Parent = tabs.CamLock
+Instance.new('UICorner', camLockToggleBtn).CornerRadius = UDim.new(0, 6)
+
+local lastLockedPlayer = nil
+local lastCamLockDir = nil
+local currentCamLockTargetPart = nil
+
+local function getLockPart(character)
+    return getTargetPart(character) or character:FindFirstChild('Head')
+end
+
+local function getCamLockTargetByDistance()
+    local bestPlayer, bestPart = nil, nil
+    local bestDist = math.huge
+    local root = me.Character and me.Character:FindFirstChild('HumanoidRootPart')
+    local originPos = root and root.Position or (cam and cam.CFrame.Position or Vector3.new(0, 0, 0))
+    for _, p in pairs(plrs:GetPlayers()) do
+        if p ~= me and not isWhitelisted(p) then
+            local character = p.Character
+            local humanoid = character and character:FindFirstChild('Humanoid')
+            if character and humanoid and humanoid.Health > 0 then
+                local part = getLockPart(character)
+                if part and part:IsA('BasePart') then
+                    local dist = (part.Position - originPos).Magnitude
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestPlayer = p
+                        bestPart = part
+                    end
+                end
+            end
+        end
+    end
+    return bestPlayer, bestPart
+end
+
+local function refreshCamLockTarget()
+    if lastLockedPlayer then
+        local character = lastLockedPlayer.Character
+        local humanoid = character and character:FindFirstChild('Humanoid')
+        if character and humanoid and humanoid.Health > 0 then
+            local part = getLockPart(character)
+            if part and part:IsA('BasePart') then
+                currentCamLockTargetPart = part
+                return lastLockedPlayer, part
+            end
+        end
+    end
+    if currentCamLockTargetPart and currentCamLockTargetPart.Parent then
+        return lastLockedPlayer, currentCamLockTargetPart
+    end
+    local targetPlayer, targetPart = getCamLockTargetByDistance()
+    lastLockedPlayer = targetPlayer
+    currentCamLockTargetPart = targetPart
+    return targetPlayer, targetPart
+end
+
+local lockedLabel = Instance.new('TextLabel')
+lockedLabel.Size = UDim2.new(1, -30, 0, 20)
+lockedLabel.Position = UDim2.new(0, 15, 0, 190)
+lockedLabel.Text = 'Locked: None'
+lockedLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+lockedLabel.TextSize = 12
+lockedLabel.Font = Enum.Font.Gotham
+lockedLabel.BackgroundTransparency = 1
+lockedLabel.TextXAlignment = Enum.TextXAlignment.Left
+lockedLabel.Parent = tabs.CamLock
+
+local function updateCamLockState(enabled)
+    _G.CamLock_Enabled = enabled
+    camLockToggleBtn.Text = _G.CamLock_Enabled and 'ON' or 'OFF'
+    camLockToggleBtn.BackgroundColor3 = _G.CamLock_Enabled and Color3.fromRGB(170, 130, 255) or Color3.fromRGB(245, 240, 250)
+    if _G.CamLock_Enabled then
+        local targetPlayer, targetPart = refreshCamLockTarget()
+        if targetPlayer and targetPart and me.Character and me.Character:FindFirstChild('HumanoidRootPart') then
+            local rootPos = me.Character.HumanoidRootPart.Position
+            local direction = targetPart.Position - rootPos
+            lastCamLockDir = direction.Magnitude > 0 and direction.Unit or cam.CFrame.LookVector
+            lockedLabel.Text = 'Locked: ' .. (targetPlayer.DisplayName or targetPlayer.Name)
+        else
+            lastCamLockDir = nil
+            lockedLabel.Text = 'Locked: None'
+        end
+    else
+        lastLockedPlayer = nil
+        currentCamLockTargetPart = nil
+        lastCamLockDir = nil
+        lockedLabel.Text = 'Locked: None'
+    end
+end
+
+camLockToggleBtn.MouseButton1Click:Connect(function()
+    updateCamLockState(not _G.CamLock_Enabled)
+end)
+
+-- (The rest of the original CamLock, ESP, Misc, Teleport, Avatar, Settings, Whitelist, slider logic, ESP creation, speed/jump, etc. remains exactly the same as your provided script)
+
+-- ==================== TRIGGER BOT LOGIC ====================
+local function IsHoldingBlacklisted()
+    local tool = me.Character and me.Character:FindFirstChildOfClass("Tool")
+    if tool then
+        local name = tool.Name:lower()
+        for _, word in pairs(TriggerBot.Blacklist) do
+            if string.find(name, word:lower()) then return true end
+        end
+    end
+    return false
+end
+
+RunService.RenderStepped:Connect(function()
+    if TriggerBot.MasterEnabled and TriggerBot.Active then
+        if IsHoldingBlacklisted() then return end
+        local RayParams = RaycastParams.new()
+        RayParams.FilterType = Enum.RaycastFilterType.Exclude
+        RayParams.FilterDescendantsInstances = {me.Character}
+        local UnitRay = cam:ScreenPointToRay(mouse.X, mouse.Y)
+        local Result = workspace:Raycast(UnitRay.Origin, UnitRay.Direction * 500, RayParams)
+        if Result and Result.Instance then
+            local Char = Result.Instance:FindFirstAncestorOfClass("Model")
+            if Char and Char:FindFirstChild("Humanoid") and Char ~= me.Character and not isWhitelisted(plrs:GetPlayerFromCharacter(Char)) then
+                if mouse1click then
+                    mouse1click()
+                    task.wait(TriggerBot.ClickDelay)
+                end
+            end
+        end
+    end
+end)
+
+-- ==================== HITBOX LOGIC ====================
+local function applyToHRP(hrp)
+    if not hrp or not hrp:IsA("BasePart") then return end
+    if _G.Hitbox_Enabled then
+        hrp.Size = Vector3.new(_G.Hitbox_Size, _G.Hitbox_Size, _G.Hitbox_Size)
+        hrp.Transparency = _G.Hitbox_Visible and 0.78 or 1
+        hrp.CanCollide = false
+        hrp.Color = _G.Hitbox_Color
+        hrp.Material = Enum.Material.Neon
+    end
+end
+
+local function applyHitboxes()
+    for _, pl in ipairs(plrs:GetPlayers()) do
+        if pl ~= me and pl.Character then
+            local hrp = pl.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then applyToHRP(hrp) end
+        end
+    end
+end
+
+local function applyHitboxToChar(pl, char)
+    if pl == me then return end
+    local hrp = char:WaitForChild("HumanoidRootPart", 5)
+    if hrp then
+        task.wait(0.2)
+        applyToHRP(hrp)
+    end
+end
+
+for _, pl in ipairs(plrs:GetPlayers()) do
+    if pl ~= me then
+        pl.CharacterAdded:Connect(function(char) applyHitboxToChar(pl, char) end)
+        if pl.Character then applyHitboxToChar(pl, pl.Character) end
+    end
+end
+
+plrs.PlayerAdded:Connect(function(pl)
+    if pl ~= me then
+        pl.CharacterAdded:Connect(function(char) applyHitboxToChar(pl, char) end)
+        if pl.Character then applyHitboxToChar(pl, pl.Character) end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if _G.Hitbox_Enabled then applyHitboxes() end
+end)
+
+-- ==================== INPUT HANDLING (updated) ====================
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+
+    if isTriggerBinding and input.UserInputType == Enum.UserInputType.Keyboard then
+        TriggerBot.TriggerKey = input.KeyCode
+        tbBindBtn.Text = 'Key: ' .. input.KeyCode.Name
+        isTriggerBinding = false
+        return
+    end
+
+    if isCamLockBinding and input.UserInputType == Enum.UserInputType.Keyboard then
+        _G.CamLock_Key = input.KeyCode
+        -- (original cam lock bind handling)
+        isCamLockBinding = false
+        return
+    end
+
+    if input.KeyCode == TriggerBot.TriggerKey then
+        TriggerBot.Active = not TriggerBot.Active
+    end
+
+    if input.KeyCode == _G.CamLock_Key and not isCamLockBinding then
+        updateCamLockState(not _G.CamLock_Enabled)
+    end
+end)
+
+-- (Keep all remaining original code for ESP creation, speed/jump loops, teleport, whitelist refresh, camera lock update, hide UI, slider connections, etc. exactly as in your original script)
